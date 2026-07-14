@@ -1,0 +1,26 @@
+# tui demo: boxes and aligned tables, offline and deterministic.
+#
+#   ecko example.ecko
+
+import "./main.ecko"
+
+# A titled box in each border style.
+print(main.box(["Ready to ship.", "All systems go."], { title: "Status", border: "rounded" }))
+print("")
+print(main.box(["double lines"], { border: "double" }))
+print("")
+
+# A table: left-aligned names, right-aligned numbers, with a header rule.
+rows = [
+    ["City", "Temp", "Wind"],
+    ["Reykjavik", "4", "22"],
+    ["Nairobi", "26", "8"],
+    ["Singapore", "31", "5"],
+]
+print(main.table(rows, { align: ["left", "right", "right"], header: true }))
+print("")
+
+# The whole point: colored cells still line up, because widths count visible
+# columns. (Colors show in a terminal; this stays aligned either way.)
+warm = string(b"\x1b[31m31\x1b[0m")
+print(main.table([["Singapore", warm], ["Reykjavik", "4"]], { align: ["left", "right"] }))

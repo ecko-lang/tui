@@ -1,0 +1,10 @@
+{
+  "name": "tui",
+  "version": "0.1.0",
+  "entrypoint": "main.ecko",
+  "description": "Terminal UI composition for Ecko: width-aware pad/center/truncate, bordered boxes, and aligned tables over std.term.",
+  "author": "Sean Nieuwoudt <sean@underwulf.com>",
+  "license": "MIT",
+  "capabilities": [],
+  "dependencies": {}
+}

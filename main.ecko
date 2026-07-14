@@ -1,0 +1,138 @@
+# tui - terminal UI composition for Ecko, written in Ecko.
+#
+# Pure string composition over std.term's width-aware primitives, so every
+# helper is deterministic and corpus-safe (no capabilities). The point:
+# widths count what the EYE sees (term.width ignores ANSI escapes), so colored
+# content still lines up in boxes and tables. Complements std.term rather than
+# living in it (Layer 3, per core-slim-design section 5).
+
+import std.term
+import std.string
+
+export { pad_end, pad_start, center, truncate, box, table }
+
+# --- width-aware primitives ------------------------------------------------
+# vis() is the VISIBLE column width; padding is measured against it, not bytes.
+
+fn vis(s) = term.width(s)
+
+fn spaces(n) = if n <= 0 { "" } else { string.repeat(" ", n) }
+
+# Pad `s` on the right (left) to a visible width of `w`; wider stays unchanged.
+fn pad_end(s, w) = s + spaces(w - vis(s))
+fn pad_start(s, w) = spaces(w - vis(s)) + s
+
+# Center `s` in `w` columns; an odd leftover goes on the right.
+fn center(s, w) {
+    gap = max([0, w - vis(s)])
+    left = gap / 2
+    spaces(left) + s + spaces(gap - left)
+}
+
+# Truncate to a visible width of `w`, marking the cut with an ellipsis. (A
+# truncated colored string loses its trailing escapes - truncate plain text.)
+fn truncate(s, w) {
+    if vis(s) <= w { s } else {
+        plain = term.strip(s)
+        if w <= 1 { plain[0..w] } else { plain[0..w - 1] + "…" }
+    }
+}
+
+# --- helpers ---------------------------------------------------------------
+
+fn get_or(m, k, d) {
+    v = get(m, k)
+    if is_null(v) { d } else { v }
+}
+
+# Border glyphs by style: rounded (default), square, double, heavy.
+fn border_chars(name) {
+    if name == "square" {
+        { tl: "┌", tr: "┐", bl: "└", br: "┘", h: "─", v: "│" }
+    } else if name == "double" {
+        { tl: "╔", tr: "╗", bl: "╚", br: "╝", h: "═", v: "║" }
+    } else if name == "heavy" {
+        { tl: "┏", tr: "┓", bl: "┗", br: "┛", h: "━", v: "┃" }
+    } else {
+        { tl: "╭", tr: "╮", bl: "╰", br: "╯", h: "─", v: "│" }
+    }
+}
+
+# --- box -------------------------------------------------------------------
+# box(lines, opts?) -> a bordered box as one string. opts: border (style),
+# title, padding (spaces inside the verticals, default 1), min_width (total).
+fn box(lines, opts) {
+    b = border_chars(get_or(opts, "border", "rounded"))
+    pad = get_or(opts, "padding", 1)
+    title = get(opts, "title")
+    min_width = get_or(opts, "min_width", 0)
+
+    # Content width = the widest line; a title must fit in the top edge too
+    # (as "<h> <title> "), and min_width applies to the whole box.
+    mut cw = 0
+    for l in lines {
+        cw = max([cw, vis(l)])
+    }
+    unless is_null(title) { cw = max([cw, vis(title) + 3 - 2 * pad]) }
+    total = cw + 2 * pad + 2
+    if min_width > total { cw = cw + (min_width - total) }
+    inner = cw + 2 * pad
+
+    top = if is_null(title) { b.tl + string.repeat(b.h, inner) + b.tr } else {
+        label = b.h + " " + title + " "
+        b.tl + label + string.repeat(b.h, max([0, inner - vis(label)])) + b.tr
+    }
+    mut out = [top]
+    for l in lines {
+        out = push(out, b.v + spaces(pad) + pad_end(l, cw) + spaces(pad) + b.v)
+    }
+    out = push(out, b.bl + string.repeat(b.h, inner) + b.br)
+    join(out, "\n")
+}
+
+# --- table -----------------------------------------------------------------
+# table(rows, opts?) -> aligned columns as one string. opts: align (per-column
+# "left" | "right" | "center", default left), header (bool: rule after row 0),
+# gap (column separator, default two spaces).
+fn align_cell(s, w, how) {
+    if how == "right" {
+        pad_start(s, w)
+    } else if how == "center" {
+        center(s, w)
+    } else {
+        pad_end(s, w)
+    }
+}
+
+fn table(rows, opts) {
+    align = get_or(opts, "align", [])
+    gap = get_or(opts, "gap", "  ")
+    header = get_or(opts, "header", false)
+    ncols = reduce(rows, |acc, r| max([acc, len(r)]), 0)
+
+    # Column widths = widest visible cell per column.
+    mut widths = []
+    for c in range(0, ncols) {
+        mut w = 0
+        for r in rows {
+            if c < len(r) { w = max([w, vis(r[c])]) }
+        }
+        widths = push(widths, w)
+    }
+
+    mut out = []
+    for (i, r) in enumerate(rows) {
+        mut cells = []
+        for c in range(0, ncols) {
+            cell = if c < len(r) { r[c] } else { "" }
+            how = if c < len(align) { align[c] } else { "left" }
+            cells = push(cells, align_cell(cell, widths[c], how))
+        }
+        out = push(out, join(cells, gap))
+        if header and i == 0 {
+            rule = join(map(widths, |w| string.repeat("─", w)), gap)
+            out = push(out, rule)
+        }
+    }
+    join(out, "\n")
+}
