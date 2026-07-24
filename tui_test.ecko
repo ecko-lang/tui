@@ -10,39 +10,39 @@ fn red_hi() = string(b"\x1b[31mhi\x1b[0m")
 
 # --- width-aware primitives ------------------------------------------------
 
-test.case("pad_end pads to a visible width", || {
+test.case("pad_end pads to a visible width", fn() {
     test.eq(main.pad_end("hi", 5), "hi   ")
     test.eq(main.pad_end("hello", 3), "hello")  # already wider -> unchanged
 })
 
-test.case("pad_start pads on the left", || {
+test.case("pad_start pads on the left", fn() {
     test.eq(main.pad_start("hi", 5), "   hi")
 })
 
-test.case("center distributes the gap, extra on the right", || {
+test.case("center distributes the gap, extra on the right", fn() {
     test.eq(main.center("hi", 6), "  hi  ")
     test.eq(main.center("hi", 5), " hi  ")
 })
 
-test.case("truncate cuts to a visible width with an ellipsis", || {
+test.case("truncate cuts to a visible width with an ellipsis", fn() {
     test.eq(main.truncate("hello world", 5), "hell…")
     test.eq(main.truncate("hi", 5), "hi")  # already shorter -> unchanged
 })
 
-test.case("pad_end counts VISIBLE width of a colored string", || {
+test.case("pad_end counts VISIBLE width of a colored string", fn() {
     # red_hi is 2 visible columns; padding to 5 adds 3 spaces after it.
     test.eq(main.pad_end(red_hi(), 5), red_hi() + "   ")
 })
 
 # --- box -------------------------------------------------------------------
 
-test.case("box wraps content in a square border", || {
+test.case("box wraps content in a square border", fn() {
     got = main.box(["ab", "c"], { border: "square", padding: 0 })
     want = "┌──┐\n│ab│\n│c │\n└──┘"
     test.eq(got, want)
 })
 
-test.case("box grows to fit a title", || {
+test.case("box grows to fit a title", fn() {
     got = main.box(["x"], { border: "square", padding: 0, title: "Hello" })
     # top border carries the title; content widens to match.
     test.eq(contains(got, "Hello"), true)
@@ -51,13 +51,13 @@ test.case("box grows to fit a title", || {
 
 # --- table -----------------------------------------------------------------
 
-test.case("table aligns columns to their widest cell", || {
+test.case("table aligns columns to their widest cell", fn() {
     got = main.table([["a", "bb"], ["ccc", "d"]], {})
     want = "a    bb\nccc  d "
     test.eq(got, want)
 })
 
-test.case("table right-aligns a column when asked", || {
+test.case("table right-aligns a column when asked", fn() {
     got = main.table([["a", "1"], ["bb", "20"]], { align: ["left", "right"] })
     want = "a    1\nbb  20"
     test.eq(got, want)

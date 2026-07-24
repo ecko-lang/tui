@@ -106,7 +106,7 @@ export fn table(rows, opts) {
     align = get_or(opts, "align", [])
     gap = get_or(opts, "gap", "  ")
     header = get_or(opts, "header", false)
-    ncols = reduce(rows, |acc, r| max([acc, len(r)]), 0)
+    ncols = reduce(rows, fn(acc, r) max([acc, len(r)]), 0)
 
     # Column widths = widest visible cell per column.
     mut widths = []
@@ -128,7 +128,7 @@ export fn table(rows, opts) {
         }
         out = push(out, join(cells, gap))
         if header and i == 0 {
-            rule = join(map(widths, |w| string.repeat("─", w)), gap)
+            rule = join(map(widths, fn(w) string.repeat("─", w)), gap)
             out = push(out, rule)
         }
     }

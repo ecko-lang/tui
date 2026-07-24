@@ -1,19 +1,31 @@
-# tui
+# TUI - Ecko Std Lib Package
 
 Terminal UI composition for [Ecko](https://ecko.sh), written in Ecko. The
 composition helpers `std.term` doesn't ship: width-aware padding, bordered
-boxes, and aligned tables — so you stop hand-rolling border math and column
+boxes, and aligned tables - so you stop hand-rolling border math and column
 layout in every TUI.
 
-Pure string composition over `std.term`'s `width`/`strip`, so every helper is
-deterministic and needs no capabilities. The key idea: **widths count what the
+String composition over `std.term`'s `width`/`strip`, so every helper is
+deterministic. The key idea: **widths count what the
 eye sees** (`term.width` ignores ANSI escapes), so colored content still lines
 up.
 
 ## Install
 
 ```bash
-ecko add https://github.com/ecko-sh/tui
+ecko get github.com/ecko-sh/tui-ecko
+```
+
+`ecko get` records this dependency under the alias `tui-ecko`, which isn't a
+valid import name (hyphens aren't allowed in Ecko identifiers). Alias it to
+`tui` in your `ecko.json`:
+
+```json
+{ "dependencies": { "tui": "github.com/ecko-sh/tui-ecko@v0.1.0" } }
+```
+
+```ecko
+import tui
 ```
 
 ## Width-aware primitives
@@ -60,7 +72,7 @@ tui.table(
 
 `opts`: `align` (per-column `"left"` | `"right"` | `"center"`, default left),
 `header` (a rule after the first row), `gap` (column separator, default two
-spaces). Columns auto-size to their widest visible cell — colored cells
+spaces). Columns auto-size to their widest visible cell - colored cells
 included.
 
 ## Testing
