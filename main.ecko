@@ -16,19 +16,21 @@ fn vis(s) = term.width(s)
 
 fn spaces(n) = if n <= 0 { "" } else { string.repeat(" ", n) }
 
-# Pad `s` on the right (left) to a visible width of `w`; wider stays unchanged.
+## Pad `s` on the right (left) to a visible width of `w`; wider stays unchanged.
 export fn pad_end(s, w) = s + spaces(w - vis(s))
+## Right-align `s` in `w` columns by padding on the left. Width is measured in
+## visible columns, so ANSI colour codes do not count.
 export fn pad_start(s, w) = spaces(w - vis(s)) + s
 
-# Center `s` in `w` columns; an odd leftover goes on the right.
+## Center `s` in `w` columns; an odd leftover goes on the right.
 export fn center(s, w) {
     gap = max([0, w - vis(s)])
     left = gap / 2
     spaces(left) + s + spaces(gap - left)
 }
 
-# Truncate to a visible width of `w`, marking the cut with an ellipsis. (A
-# truncated colored string loses its trailing escapes - truncate plain text.)
+## Truncate to a visible width of `w`, marking the cut with an ellipsis. (A
+## truncated colored string loses its trailing escapes - truncate plain text.)
 export fn truncate(s, w) {
     if vis(s) <= w { s } else {
         plain = term.strip(s)
@@ -57,8 +59,8 @@ fn border_chars(name) {
 }
 
 # --- box -------------------------------------------------------------------
-# box(lines, opts?) -> a bordered box as one string. opts: border (style),
-# title, padding (spaces inside the verticals, default 1), min_width (total).
+## box(lines, opts?) -> a bordered box as one string. opts: border (style),
+## title, padding (spaces inside the verticals, default 1), min_width (total).
 export fn box(lines, opts) {
     b = border_chars(get_or(opts, "border", "rounded"))
     pad = get_or(opts, "padding", 1)
@@ -102,6 +104,9 @@ fn align_cell(s, w, how) {
     }
 }
 
+## Render rows as an aligned text table. `opts` may carry `align` (a list of
+## `"left"`/`"right"` per column) and `gap` (the column separator, two spaces
+## by default). Column widths come from the widest visible cell.
 export fn table(rows, opts) {
     align = get_or(opts, "align", [])
     gap = get_or(opts, "gap", "  ")

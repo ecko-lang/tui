@@ -1,6 +1,6 @@
 {
   "module": "github.com/ecko-sh/tui-ecko",
-  "version": "0.9.1",
+  "version": "0.9.4",
   "entrypoint": "main.ecko",
   "description": "Terminal UI composition for Ecko: width-aware pad/center/truncate, bordered boxes, and aligned tables over std.term.",
   "author": "Sean Nieuwoudt <sean@underwulf.com>",
