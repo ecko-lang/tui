@@ -13,15 +13,7 @@ up.
 ## Install
 
 ```bash
-ecko get github.com/ecko-sh/tui-ecko
-```
-
-`ecko get` records this dependency under the alias `tui-ecko`, which isn't a
-valid import name (hyphens aren't allowed in Ecko identifiers). Alias it to
-`tui` in your `ecko.json`:
-
-```json
-{ "dependencies": { "tui": "github.com/ecko-sh/tui-ecko@v0.1.0" } }
+ecko get github.com/ecko-lang/tui
 ```
 
 ```ecko

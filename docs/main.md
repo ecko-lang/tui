@@ -1,4 +1,4 @@
-# tui-ecko
+# tui
 
 ## `pad_end(s, w)`
 
