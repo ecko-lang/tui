@@ -7,14 +7,14 @@
 # living in it (Layer 3, per core-slim-design section 5).
 
 import std.term
-import std.string
+import std.str
 
 # --- width-aware primitives ------------------------------------------------
 # vis() is the VISIBLE column width; padding is measured against it, not bytes.
 
 fn vis(s) = term.width(s)
 
-fn spaces(n) = if n <= 0 { "" } else { string.repeat(" ", n) }
+fn spaces(n) = if n <= 0 { "" } else { str.repeat(" ", n) }
 
 ## Pad `s` on the right (left) to a visible width of `w`; wider stays unchanged.
 export fn pad_end(s, w) = s + spaces(w - vis(s))
@@ -78,15 +78,15 @@ export fn box(lines, opts) {
     if min_width > total { cw = cw + (min_width - total) }
     inner = cw + 2 * pad
 
-    top = if is_null(title) { b.tl + string.repeat(b.h, inner) + b.tr } else {
+    top = if is_null(title) { b.tl + str.repeat(b.h, inner) + b.tr } else {
         label = b.h + " " + title + " "
-        b.tl + label + string.repeat(b.h, max([0, inner - vis(label)])) + b.tr
+        b.tl + label + str.repeat(b.h, max([0, inner - vis(label)])) + b.tr
     }
     mut out = [top]
     for l in lines {
         out = push(out, b.v + spaces(pad) + pad_end(l, cw) + spaces(pad) + b.v)
     }
-    out = push(out, b.bl + string.repeat(b.h, inner) + b.br)
+    out = push(out, b.bl + str.repeat(b.h, inner) + b.br)
     join(out, "\n")
 }
 
@@ -133,7 +133,7 @@ export fn table(rows, opts) {
         }
         out = push(out, join(cells, gap))
         if header and i == 0 {
-            rule = join(map(widths, fn(w) string.repeat("─", w)), gap)
+            rule = join(map(widths, fn(w) str.repeat("─", w)), gap)
             out = push(out, rule)
         }
     }
