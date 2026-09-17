@@ -20,7 +20,9 @@ ecko get github.com/ecko-lang/tui
 import tui
 ```
 
-## Width-aware primitives
+## Usage
+
+### Width-aware primitives
 
 `string.pad_*` count characters, which miscounts escape codes. These count
 visible columns:
@@ -36,7 +38,7 @@ tui.truncate("hello world", 5) # "hell…"
 tui.pad_end(term.red("hi"), 5) # pads by the 2 VISIBLE columns, not the bytes
 ```
 
-## Boxes
+### Boxes
 
 ```ecko
 tui.box(["Ready to ship."], { title: "Status", border: "rounded" })
@@ -49,7 +51,7 @@ tui.box(["Ready to ship."], { title: "Status", border: "rounded" })
 `padding` (spaces inside the verticals, default 1), `min_width` (total box
 width). The box grows to fit its content, title, and `min_width`.
 
-## Tables
+### Tables
 
 ```ecko
 tui.table(
@@ -66,6 +68,20 @@ tui.table(
 `header` (a rule after the first row), `gap` (column separator, default two
 spaces). Columns auto-size to their widest visible cell - colored cells
 included.
+
+## API
+
+Every width here is a **visible** width: `term.width` ignores ANSI escapes, so
+coloured content lines up with plain content.
+
+| Function | Description |
+|---|---|
+| `pad_end(s, w)` | Pad on the right to `w` columns; wider text is left alone |
+| `pad_start(s, w)` | Pad on the left - right-aligns `s` in `w` columns |
+| `center(s, w)` | Centre in `w` columns; an odd leftover goes right |
+| `truncate(s, w)` | Cut to `w` columns, marking the cut with an ellipsis |
+| `box(lines, opts?)` | A bordered box as one string |
+| `table(rows, opts?)` | Rows as an aligned table, auto-sized to the widest cell |
 
 ## Testing
 
