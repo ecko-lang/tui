@@ -1,18 +1,230 @@
-# tui - terminal UI composition for Ecko, written in Ecko.
+# tui - terminal styling and UI composition for Ecko, written in Ecko.
 #
-# Pure string composition over std.term's width-aware primitives, so every
-# helper is deterministic and corpus-safe (no capabilities). The point:
-# widths count what the EYE sees (term.width ignores ANSI escapes), so colored
-# content still lines up in boxes and tables. Complements std.term rather than
-# living in it (Layer 3, per core-slim-design section 5).
+# Two halves. Styling: colours, attributes, hyperlinks and cursor/clear
+# sequences, which moved here from std.term in Ecko 0.59 under the same names.
+# Each emits escape codes only when term.color_enabled() says to (CLICOLOR_FORCE,
+# NO_COLOR, then whether stdout is a terminal) - the one check a package cannot
+# make itself without the env capability. Composition: width-aware padding,
+# boxes and tables, where widths count what the EYE sees (escape codes take no
+# columns), so coloured content still lines up. No capabilities; Layer 3, per
+# core-slim-design section 5.
 
 import std.term
 import std.str
 
+ESC = "\u{1b}"
+
+# --- styling ---------------------------------------------------------------
+# sgr() wraps text in a Select Graphic Rendition code and resets after;
+# control() is a bare sequence. Both are plain (or empty) when colour is off.
+
+fn sgr(codes, text) {
+    t = string(text)
+    if codes != "" and term.color_enabled() { ESC + "[" + codes + "m" + t + ESC + "[0m" } else { t }
+}
+
+fn control(seq) = if term.color_enabled() { seq } else { "" }
+
+fn clamp(n, lo, hi) = min([hi, max([lo, n])])
+
+COLORS = {
+    black: 30,
+    red: 31,
+    green: 32,
+    yellow: 33,
+    blue: 34,
+    magenta: 35,
+    cyan: 36,
+    white: 37,
+    gray: 90,
+    grey: 90,
+    bright_black: 90,
+    bright_red: 91,
+    bright_green: 92,
+    bright_yellow: 93,
+    bright_blue: 94,
+    bright_magenta: 95,
+    bright_cyan: 96,
+    bright_white: 97,
+}
+
+fn color_code(name, offset) {
+    code = get(COLORS, name)
+    if is_null(code) { error({ kind: "bug", message: "tui.style: unknown color '{name}'" }) }
+    string(code + offset)
+}
+
+## `text` in black. Every colour and attribute function takes any value
+## (non-strings are stringified) and returns it unchanged when colour is off.
+export fn black(text) = sgr("30", text)
+## `text` in red.
+export fn red(text) = sgr("31", text)
+## `text` in green.
+export fn green(text) = sgr("32", text)
+## `text` in yellow.
+export fn yellow(text) = sgr("33", text)
+## `text` in blue.
+export fn blue(text) = sgr("34", text)
+## `text` in magenta.
+export fn magenta(text) = sgr("35", text)
+## `text` in cyan.
+export fn cyan(text) = sgr("36", text)
+## `text` in white.
+export fn white(text) = sgr("37", text)
+## `text` in gray (the same code as `grey` and `bright_black`).
+export fn gray(text) = sgr("90", text)
+## `text` in grey - an alias of `gray`.
+export fn grey(text) = sgr("90", text)
+## `text` in bright black - an alias of `gray`.
+export fn bright_black(text) = sgr("90", text)
+## `text` in bright red.
+export fn bright_red(text) = sgr("91", text)
+## `text` in bright green.
+export fn bright_green(text) = sgr("92", text)
+## `text` in bright yellow.
+export fn bright_yellow(text) = sgr("93", text)
+## `text` in bright blue.
+export fn bright_blue(text) = sgr("94", text)
+## `text` in bright magenta.
+export fn bright_magenta(text) = sgr("95", text)
+## `text` in bright cyan.
+export fn bright_cyan(text) = sgr("96", text)
+## `text` in bright white.
+export fn bright_white(text) = sgr("97", text)
+
+## `text` in bold.
+export fn bold(text) = sgr("1", text)
+## `text` dimmed.
+export fn dim(text) = sgr("2", text)
+## `text` in italics.
+export fn italic(text) = sgr("3", text)
+## `text` underlined.
+export fn underline(text) = sgr("4", text)
+## `text` blinking, where the terminal supports it.
+export fn blink(text) = sgr("5", text)
+## `text` with foreground and background swapped.
+export fn reverse(text) = sgr("7", text)
+## `text` struck through.
+export fn strikethrough(text) = sgr("9", text)
+
+## `text` in a 24-bit colour; each channel is clamped to 0-255.
+export fn rgb(text, r: Int, g: Int, b: Int) = sgr(
+    "38;2;{clamp(r, 0, 255)};{clamp(g, 0, 255)};{clamp(b, 0, 255)}",
+    text,
+)
+
+## `text` in colour `n` of the 256-colour palette, clamped to 0-255.
+export fn color(text, n: Int) = sgr("38;5;{clamp(n, 0, 255)}", text)
+
+## Several attributes at once, as named arguments: `style("ok", bold: true,
+## fg: "green", bg: "black")`. `fg` and `bg` take the colour names above; an
+## unknown one throws (`kind: "bug"`).
+export fn style(text, bold = false, dim = false, italic = false, underline = false, blink = false, reverse = false, strikethrough = false, fg = null, bg = null) {
+    mut codes = []
+    flags = [
+        [bold, "1"],
+        [dim, "2"],
+        [italic, "3"],
+        [underline, "4"],
+        [blink, "5"],
+        [reverse, "7"],
+        [strikethrough, "9"],
+    ]
+    for f in flags {
+        if f[0] { codes = push(codes, f[1]) }
+    }
+    unless is_null(fg) { codes = push(codes, color_code(fg, 0)) }
+    unless is_null(bg) { codes = push(codes, color_code(bg, 10)) }
+    sgr(join(codes, ";"), text)
+}
+
+## `text` as a clickable hyperlink to `url` (OSC 8), or plain `text` when
+## colour is off.
+export fn link(url, text) {
+    t = string(text)
+    if term.color_enabled() {
+        ESC + "]8;;" + string(url) + ESC + "\\" + t + ESC + "]8;;" + ESC + "\\"
+    } else {
+        t
+    }
+}
+
+## Move the cursor to `row`, `col` (1-based; smaller values become 1).
+export fn goto(row: Int, col: Int) = control(ESC + "[{max([1, row])};{max([1, col])}H")
+## Move the cursor up `n` rows (default 1).
+export fn up(n = 1) = control(ESC + "[{steps(n)}A")
+## Move the cursor down `n` rows (default 1).
+export fn down(n = 1) = control(ESC + "[{steps(n)}B")
+## Move the cursor right `n` columns (default 1).
+export fn right(n = 1) = control(ESC + "[{steps(n)}C")
+## Move the cursor left `n` columns (default 1).
+export fn left(n = 1) = control(ESC + "[{steps(n)}D")
+
+fn steps(n) = if type_of(n) == "int" { max([1, n]) } else { 1 }
+
+## Save the cursor position.
+export fn save_cursor() = control(ESC + "[s")
+## Restore the cursor position saved by `save_cursor`.
+export fn restore_cursor() = control(ESC + "[u")
+## Hide the cursor.
+export fn hide_cursor() = control(ESC + "[?25l")
+## Show the cursor.
+export fn show_cursor() = control(ESC + "[?25h")
+## Clear the screen and move the cursor home.
+export fn clear() = control(ESC + "[2J" + ESC + "[H")
+## Clear the current line.
+export fn clear_line() = control(ESC + "[2K")
+## Clear from the cursor to the end of the screen.
+export fn clear_down() = control(ESC + "[0J")
+## Switch to the alternate screen, or back with `alt_screen(false)`.
+export fn alt_screen(on = true) = control(if on { ESC + "[?1049h" } else { ESC + "[?1049l" })
+
+## `s` with its escape sequences removed - colours, cursor moves and
+## hyperlinks - which is what a log file wants. Works whether or not colour is on.
+export fn strip(s) {
+    cs = str.chars(string(s))
+    n = len(cs)
+    mut out = []
+    mut i = 0
+    while i < n {
+        c = cs[i]
+        i = i + 1
+        if c != ESC { out = push(out, c) } else if i < n and cs[i] == "[" {
+            # CSI: ESC [ ... a final byte in @ to ~
+            i = i + 1
+            mut done = false
+            while i < n and not done {
+                o = str.ord(cs[i])
+                i = i + 1
+                done = o >= 64 and o <= 126
+            }
+        } else if i < n and cs[i] == "]" {
+            # OSC: ESC ] ... ended by BEL or ESC \
+            i = i + 1
+            mut done = false
+            while i < n and not done {
+                d = cs[i]
+                if d == "\u{7}" {
+                    i = i + 1
+                    done = true
+                } else if d == ESC {
+                    i = i + 1
+                    if i < n and cs[i] == "\\" { i = i + 1 }
+                    done = true
+                } else { i = i + 1 }
+            }
+        }
+    }
+    join(out, "")
+}
+
+## The visible width of `s`: its characters once escape sequences are removed.
+export fn width(s) = len(str.chars(strip(s)))
+
 # --- width-aware primitives ------------------------------------------------
 # vis() is the VISIBLE column width; padding is measured against it, not bytes.
 
-fn vis(s) = term.width(s)
+fn vis(s) = width(s)
 
 fn spaces(n) = if n <= 0 { "" } else { str.repeat(" ", n) }
 
@@ -25,15 +237,15 @@ export fn pad_start(s, w) = spaces(w - vis(s)) + s
 ## Center `s` in `w` columns; an odd leftover goes on the right.
 export fn center(s, w) {
     gap = max([0, w - vis(s)])
-    left = gap // 2
-    spaces(left) + s + spaces(gap - left)
+    lpad = gap // 2
+    spaces(lpad) + s + spaces(gap - lpad)
 }
 
 ## Truncate to a visible width of `w`, marking the cut with an ellipsis. (A
 ## truncated colored string loses its trailing escapes - truncate plain text.)
 export fn truncate(s, w) {
     if vis(s) <= w { s } else {
-        plain = term.strip(s)
+        plain = strip(s)
         if w <= 1 { plain[0..w] } else { plain[0..w - 1] + "…" }
     }
 }

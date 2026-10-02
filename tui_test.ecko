@@ -1,8 +1,9 @@
 # Offline tests (ecko test): pure string composition, so output is exact and
-# deterministic. Width-aware helpers count VISIBLE width (via term.width), so a
+# deterministic. Width-aware helpers count VISIBLE width (escapes take no columns), so a
 # colored string pads/aligns by what the eye sees, not by byte length - proven
 # here with a real ANSI-escaped string built from a bytes literal.
 import std.test
+import std.term
 import "./main.ecko"
 
 # A red "hi": 2 visible columns, 11 raw bytes.
@@ -61,4 +62,61 @@ test.case("table right-aligns a column when asked", fn() {
     got = main.table([["a", "1"], ["bb", "20"]], { align: ["left", "right"] })
     want = "a    1\nbb  20"
     test.eq(got, want)
+})
+
+# --- styling ---------------------------------------------------------------
+# Whether escapes are written depends on the terminal and on CLICOLOR_FORCE /
+# NO_COLOR, so these hold either way: stripped, a styled string is its text.
+
+ESC = "\u{1b}"
+
+test.case("a colour wraps its text, and strips back to it", fn() {
+    got = main.red("hi")
+    test.eq(main.strip(got), "hi")
+    test.eq(main.width(got), 2)
+    if term.color_enabled() {
+        test.eq(got, ESC + "[31mhi" + ESC + "[0m")
+    } else {
+        test.eq(got, "hi")
+    }
+})
+
+test.case("style combines attributes and colours", fn() {
+    got = main.style("ok", bold: true, fg: "green", bg: "black")
+    test.eq(main.strip(got), "ok")
+    if term.color_enabled() {
+        test.eq(got, ESC + "[1;32;40mok" + ESC + "[0m")
+    } else {
+        test.eq(got, "ok")
+    }
+})
+
+test.case("style refuses an unknown colour", fn() {
+    mut kind = ""
+    try { main.style("x", fg: "mauve") } catch (e) { kind = e.kind }
+    test.eq(kind, "bug")
+})
+
+test.case("rgb and color clamp to 0-255", fn() {
+    if term.color_enabled() {
+        test.eq(main.rgb("x", 300, -5, 7), ESC + "[38;2;255;0;7mx" + ESC + "[0m")
+        test.eq(main.color("x", 999), ESC + "[38;5;255mx" + ESC + "[0m")
+    } else { test.eq(main.rgb("x", 300, -5, 7), "x") }
+})
+
+test.case("strip removes CSI codes and OSC 8 hyperlinks", fn() {
+    test.eq(main.strip(ESC + "[1mhé" + ESC + "[0m"), "hé")
+    test.eq(
+        main.strip(ESC + "]8;;https://ecko.sh" + ESC + "\\ecko" + ESC + "]8;;" + ESC + "\\"),
+        "ecko",
+    )
+    test.eq(main.strip(ESC + "]8;;u\u{7}x"), "x")
+    test.eq(main.width(red_hi()), 2)
+    test.eq(main.width("🦀"), 1)
+})
+
+test.case("cursor and clear sequences are empty when colour is off", fn() {
+    unless term.color_enabled() {
+        test.eq(main.clear() + main.goto(1, 1) + main.up(2) + main.hide_cursor(), "")
+    }
 })

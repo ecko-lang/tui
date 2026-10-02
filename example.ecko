@@ -1,4 +1,4 @@
-# tui demo: boxes and aligned tables, offline and deterministic.
+# tui demo: styling, boxes and aligned tables, offline and deterministic.
 #
 #   ecko example.ecko
 
@@ -22,5 +22,17 @@ print("")
 
 # The whole point: colored cells still line up, because widths count visible
 # columns. (Colors show in a terminal; this stays aligned either way.)
-warm = string(b"\x1b[31m31\x1b[0m")
+warm = main.red("31")
 print(main.table([["Singapore", warm], ["Reykjavik", "4"]], { align: ["left", "right"] }))
+print("")
+
+# Styling. In a terminal these are coloured; piped, or with NO_COLOR set, each
+# is its plain text, so the output above and below stays deterministic.
+print(
+    main.bold("bold") +
+        " " +
+        main.green("green") +
+        " " +
+        main.style("both", bold: true, fg: "cyan"),
+)
+print(main.link("https://ecko.sh", "ecko.sh"))
