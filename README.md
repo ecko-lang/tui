@@ -30,7 +30,7 @@ import tui
 ```ecko
 import tui
 
-print(tui.bold("Deployed") + " " + tui.green("ok"))
+print(tui.bold("Deployed"), tui.green("ok"))
 print(tui.style("warning", bold: true, fg: "yellow", bg: "black"))
 print(tui.rgb("brand", 251, 166, 166))     # 24-bit colour
 print(tui.color("palette", 208))           # 256-colour palette
@@ -53,7 +53,7 @@ import and the prefix; the arguments and the output are the same. `term.size`,
 
 ### Width-aware primitives
 
-`string.pad_*` count characters, which miscounts escape codes. These count
+`str.pad_start` and `str.pad_end` count characters, which miscounts escape codes. These count
 visible columns:
 
 ```ecko
