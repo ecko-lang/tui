@@ -5,9 +5,9 @@
 import "./main.ecko"
 
 # A titled box in each border style.
-print(main.box(["Ready to ship.", "All systems go."], { title: "Status", border: "rounded" }))
+print(main.box(["Ready to ship.", "All systems go."], title: "Status", border: "rounded"))
 print("")
-print(main.box(["double lines"], { border: "double" }))
+print(main.box(["double lines"], border: "double"))
 print("")
 
 # A table: left-aligned names, right-aligned numbers, with a header rule.
@@ -17,13 +17,13 @@ rows = [
     ["Nairobi", "26", "8"],
     ["Singapore", "31", "5"],
 ]
-print(main.table(rows, { align: ["left", "right", "right"], header: true }))
+print(main.table(rows, align: ["left", "right", "right"], header: true))
 print("")
 
 # The whole point: colored cells still line up, because widths count visible
 # columns. (Colors show in a terminal; this stays aligned either way.)
 warm = main.red("31")
-print(main.table([["Singapore", warm], ["Reykjavik", "4"]], { align: ["left", "right"] }))
+print(main.table([["Singapore", warm], ["Reykjavik", "4"]], align: ["left", "right"]))
 print("")
 
 # Styling. In a terminal these are coloured; piped, or with NO_COLOR set, each

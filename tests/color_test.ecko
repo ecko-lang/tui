@@ -1,0 +1,44 @@
+# Escape sequences with colour forced on: CLICOLOR_FORCE overrides NO_COLOR
+# and the terminal check, so this file is deterministic wherever it runs.
+# (`ecko test` runs each file in its own process, so this does not leak.)
+import std.os
+import std.test
+import "../main.ecko"
+
+os.set_env("CLICOLOR_FORCE", "1")
+ESC = "\u{1b}"
+
+test.case("cursor and screen sequences", fn() {
+    test.eq(main.goto(3, 0), ESC + "[3;1H")
+    test.eq(main.up(), ESC + "[1A")
+    test.eq(main.down(2), ESC + "[2B")
+    test.eq(main.right(0), ESC + "[1C")
+    test.eq(main.left(4), ESC + "[4D")
+    test.eq(main.save_cursor() + main.restore_cursor(), ESC + "[s" + ESC + "[u")
+    test.eq(main.hide_cursor() + main.show_cursor(), ESC + "[?25l" + ESC + "[?25h")
+    test.eq(main.clear(), ESC + "[2J" + ESC + "[H")
+    test.eq(main.clear_line() + main.clear_down(), ESC + "[2K" + ESC + "[0J")
+    test.eq(main.alt_screen() + main.alt_screen(false), ESC + "[?1049h" + ESC + "[?1049l")
+})
+
+test.case("bright colours and attributes", fn() {
+    test.eq(main.bright_cyan("x"), ESC + "[96mx" + ESC + "[0m")
+    test.eq(main.grey("x"), ESC + "[90mx" + ESC + "[0m")
+    test.eq(main.italic("x"), ESC + "[3mx" + ESC + "[0m")
+    test.eq(main.underline(1), ESC + "[4m1" + ESC + "[0m")
+    test.eq(main.strikethrough("x"), ESC + "[9mx" + ESC + "[0m")
+    test.eq(main.style("x"), "x")
+})
+
+test.case("link writes an OSC 8 hyperlink", fn() {
+    test.eq(
+        main.link("https://ecko.sh", "docs"),
+        ESC + "]8;;https://ecko.sh" + ESC + "\\docs" + ESC + "]8;;" + ESC + "\\",
+    )
+    test.eq(main.width(main.link("https://ecko.sh", "docs")), 4)
+})
+
+test.case("coloured cells line up by what the eye sees", fn() {
+    got = main.table([[main.red("日本"), "x"], ["abc", "y"]])
+    test.eq(main.strip(got), "日本  x\nabc   y")
+})

@@ -11,6 +11,7 @@
 
 import std.term
 import std.str
+import "./columns.ecko"
 
 ESC = "\u{1b}"
 
@@ -50,7 +51,15 @@ COLORS = {
 
 fn color_code(name, offset) {
     code = get(COLORS, name)
-    if is_null(code) { error({ kind: "bug", message: "tui.style: unknown color '{name}'" }) }
+    if is_null(code) {
+        error(
+            {
+                kind: "bug",
+                reason: "bad_option",
+                message: "tui.style: unknown color '{name}'; use one of {join(sort(keys(COLORS)), ", ")}",
+            },
+        )
+    }
     string(code + offset)
 }
 
@@ -116,9 +125,15 @@ export fn rgb(text, r: Int, g: Int, b: Int) = sgr(
 ## `text` in colour `n` of the 256-colour palette, clamped to 0-255.
 export fn color(text, n: Int) = sgr("38;5;{clamp(n, 0, 255)}", text)
 
-## Several attributes at once, as named arguments: `style("ok", bold: true,
-## fg: "green", bg: "black")`. `fg` and `bg` take the colour names above; an
-## unknown one throws (`kind: "bug"`).
+## `text` with several attributes and colours at once, given as named arguments.
+##
+## `fg` and `bg` take the colour names of the functions above (`"red"`,
+## `"bright_cyan"`, `"gray"`, ...).
+##
+## errors: `bug`/`bad_option` for an unknown `fg` or `bg` name.
+##
+## example:
+##   tui.style("ok", bold: true, fg: "green", bg: "black")
 export fn style(text, bold = false, dim = false, italic = false, underline = false, blink = false, reverse = false, strikethrough = false, fg = null, bg = null) {
     mut codes = []
     flags = [
@@ -218,8 +233,16 @@ export fn strip(s) {
     join(out, "")
 }
 
-## The visible width of `s`: its characters once escape sequences are removed.
-export fn width(s) = len(str.chars(strip(s)))
+## The visible width of `s` in terminal columns.
+##
+## Escape sequences take no columns. CJK characters, fullwidth forms and emoji
+## take two; combining marks, zero-width joiners and variation selectors take
+## none; an emoji ZWJ sequence, a skin-tone emoji and a flag each count as one
+## two-column glyph. A non-string is stringified first.
+##
+## example:
+##   tui.width(tui.red("日本"))   # 4
+export fn width(s) = columns.columns(strip(s))
 
 # --- width-aware primitives ------------------------------------------------
 # vis() is the VISIBLE column width; padding is measured against it, not bytes.
@@ -228,61 +251,137 @@ fn vis(s) = width(s)
 
 fn spaces(n) = if n <= 0 { "" } else { str.repeat(" ", n) }
 
-## Pad `s` on the right (left) to a visible width of `w`; wider stays unchanged.
-export fn pad_end(s, w) = s + spaces(w - vis(s))
-## Right-align `s` in `w` columns by padding on the left. Width is measured in
-## visible columns, so ANSI colour codes do not count.
-export fn pad_start(s, w) = spaces(w - vis(s)) + s
+fn bug(reason, message) = error({ kind: "bug", reason: reason, message: message })
 
-## Center `s` in `w` columns; an odd leftover goes on the right.
-export fn center(s, w) {
-    gap = max([0, w - vis(s)])
-    lpad = gap // 2
-    spaces(lpad) + s + spaces(gap - lpad)
-}
-
-## Truncate to a visible width of `w`, marking the cut with an ellipsis. (A
-## truncated colored string loses its trailing escapes - truncate plain text.)
-export fn truncate(s, w) {
-    if vis(s) <= w { s } else {
-        plain = strip(s)
-        if w <= 1 { plain[0..w] } else { plain[0..w - 1] + "…" }
+fn need_width(fname, w) {
+    unless type_of(w) == "int" and w >= 0 {
+        bug("bad_width", "tui.{fname}: w must be a non-negative Int, got {w}")
     }
 }
 
-# --- helpers ---------------------------------------------------------------
-
-fn get_or(m, k, d) {
-    v = get(m, k)
-    if is_null(v) { d } else { v }
+## `s` padded on the right with spaces to a visible width of `w` columns.
+##
+## Text already `w` columns or wider comes back unchanged. A non-string is
+## stringified first.
+##
+## errors: `bug`/`bad_width` when `w` is not a non-negative Int.
+##
+## example:
+##   tui.pad_end("hi", 5)   # "hi   "
+export fn pad_end(s, w) {
+    need_width("pad_end", w)
+    t = string(s)
+    t + spaces(w - vis(t))
 }
 
-# Border glyphs by style: rounded (default), square, double, heavy.
-fn border_chars(name) {
-    if name == "square" {
-        { tl: "┌", tr: "┐", bl: "└", br: "┘", h: "─", v: "│" }
-    } else if name == "double" {
-        { tl: "╔", tr: "╗", bl: "╚", br: "╝", h: "═", v: "║" }
-    } else if name == "heavy" {
-        { tl: "┏", tr: "┓", bl: "┗", br: "┛", h: "━", v: "┃" }
-    } else {
-        { tl: "╭", tr: "╮", bl: "╰", br: "╯", h: "─", v: "│" }
+## `s` right-aligned in `w` columns by padding it on the left with spaces.
+##
+## Text already `w` columns or wider comes back unchanged. A non-string is
+## stringified first.
+##
+## errors: `bug`/`bad_width` when `w` is not a non-negative Int.
+##
+## example:
+##   tui.pad_start("42", 5)   # "   42"
+export fn pad_start(s, w) {
+    need_width("pad_start", w)
+    t = string(s)
+    spaces(w - vis(t)) + t
+}
+
+## `s` centred in `w` columns; an odd leftover space goes on the right.
+##
+## errors: `bug`/`bad_width` when `w` is not a non-negative Int.
+##
+## example:
+##   tui.center("hi", 5)   # " hi  "
+export fn center(s, w) {
+    need_width("center", w)
+    t = string(s)
+    gap = max([0, w - vis(t)])
+    lpad = gap // 2
+    spaces(lpad) + t + spaces(gap - lpad)
+}
+
+## `s` cut to a visible width of `w` columns, the cut marked with `…`.
+##
+## Text that fits comes back unchanged. A cut never splits a wide character
+## or a combining sequence. With `w` of 1 there is no room for the ellipsis,
+## so the first column is kept alone; `w` of 0 gives `""`. A cut string loses
+## its escape sequences, so truncate before colouring.
+##
+## errors: `bug`/`bad_width` when `w` is not a non-negative Int.
+##
+## example:
+##   tui.truncate("hello world", 5)   # "hell…"
+export fn truncate(s, w) {
+    need_width("truncate", w)
+    t = string(s)
+    if vis(t) <= w { t } else {
+        plain = strip(t)
+        if w <= 1 {
+            columns.take_columns(plain, w)
+        } else {
+            columns.take_columns(plain, w - 1) + "…"
+        }
     }
 }
 
 # --- box -------------------------------------------------------------------
-## box(lines, opts?) -> a bordered box as one string. opts: border (style),
-## title, padding (spaces inside the verticals, default 1), min_width (total).
-export fn box(lines, opts) {
-    b = border_chars(get_or(opts, "border", "rounded"))
-    pad = get_or(opts, "padding", 1)
-    title = get(opts, "title")
-    min_width = get_or(opts, "min_width", 0)
+
+BORDERS = {
+    rounded: { tl: "╭", tr: "╮", bl: "╰", br: "╯", h: "─", v: "│" },
+    square: { tl: "┌", tr: "┐", bl: "└", br: "┘", h: "─", v: "│" },
+    double: { tl: "╔", tr: "╗", bl: "╚", br: "╝", h: "═", v: "║" },
+    heavy: { tl: "┏", tr: "┓", bl: "┗", br: "┛", h: "━", v: "┃" },
+}
+
+fn need_count(fname, name, v) {
+    unless type_of(v) == "int" and v >= 0 {
+        bug("bad_option", "tui.{fname}: {name} must be a non-negative Int, got {v}")
+    }
+}
+
+## A bordered box around `lines`, as one string.
+##
+## `lines` is a list; each item is stringified, and one holding newlines
+## becomes several rows. `border` is `"rounded"`, `"square"`, `"double"` or
+## `"heavy"`; `title`, when given, sits in the top edge; `padding` is the
+## spaces inside each vertical edge; `min_width` is the least total width of
+## the box. The box grows to fit its widest line and its title.
+##
+## errors: `bug`/`bad_argument` when `lines` is not a list; `bug`/`bad_option`
+## for an unknown `border` or a `padding` or `min_width` that is not a
+## non-negative Int.
+##
+## example:
+##   tui.box(["Ready to ship."], title: "Status")
+##   # ╭─ Status ───────╮
+##   # │ Ready to ship. │
+##   # ╰────────────────╯
+export fn box(lines, border = "rounded", title = null, padding = 1, min_width = 0) {
+    unless type_of(lines) == "list" {
+        bug("bad_argument", "tui.box: lines must be a list, got {type_of(lines)}")
+    }
+    if type_of(border) == "map" {
+        bug(
+            "bad_option",
+            "tui.box: options are named arguments - write box(lines, border: \"square\"), not box(lines, \{ border: ... \})",
+        )
+    }
+    b = get(BORDERS, string(border))
+    if is_null(b) {
+        bug("bad_option", "tui.box: border must be rounded, square, double or heavy, got {border}")
+    }
+    need_count("box", "padding", padding)
+    need_count("box", "min_width", min_width)
+    pad = padding
+    rows = reduce(lines, fn(acc, l) acc + str.split(string(l), "\n"), [])
 
     # Content width = the widest line; a title must fit in the top edge too
     # (as "<h> <title> "), and min_width applies to the whole box.
     mut cw = 0
-    for l in lines {
+    for l in rows {
         cw = max([cw, vis(l)])
     }
     unless is_null(title) { cw = max([cw, vis(title) + 3 - 2 * pad]) }
@@ -291,11 +390,11 @@ export fn box(lines, opts) {
     inner = cw + 2 * pad
 
     top = if is_null(title) { b.tl + str.repeat(b.h, inner) + b.tr } else {
-        label = b.h + " " + title + " "
+        label = b.h + " " + string(title) + " "
         b.tl + label + str.repeat(b.h, max([0, inner - vis(label)])) + b.tr
     }
     mut out = [top]
-    for l in lines {
+    for l in rows {
         out = push(out, b.v + spaces(pad) + pad_end(l, cw) + spaces(pad) + b.v)
     }
     out = push(out, b.bl + str.repeat(b.h, inner) + b.br)
@@ -303,9 +402,9 @@ export fn box(lines, opts) {
 }
 
 # --- table -----------------------------------------------------------------
-# table(rows, opts?) -> aligned columns as one string. opts: align (per-column
-# "left" | "right" | "center", default left), header (bool: rule after row 0),
-# gap (column separator, default two spaces).
+
+ALIGNS = ["left", "right", "center"]
+
 fn align_cell(s, w, how) {
     if how == "right" {
         pad_start(s, w)
@@ -316,36 +415,66 @@ fn align_cell(s, w, how) {
     }
 }
 
-## Render rows as an aligned text table. `opts` may carry `align` (a list of
-## `"left"`/`"right"` per column) and `gap` (the column separator, two spaces
-## by default). Column widths come from the widest visible cell.
-export fn table(rows, opts) {
-    align = get_or(opts, "align", [])
-    gap = get_or(opts, "gap", "  ")
-    header = get_or(opts, "header", false)
-    ncols = reduce(rows, fn(acc, r) max([acc, len(r)]), 0)
+## `rows` as an aligned text table, one string with a line per row.
+##
+## `rows` is a list of lists; each cell is stringified, and a short row is
+## padded with empty cells. Each column is as wide as its widest visible cell.
+## `align` gives each column `"left"`, `"right"` or `"center"` (columns it
+## does not cover are left-aligned); `header: true` draws a rule under the
+## first row; `gap` separates columns.
+##
+## errors: `bug`/`bad_argument` when `rows` is not a list of lists;
+## `bug`/`bad_option` for an unknown `align` value or a `header` that is not a
+## Bool.
+##
+## example:
+##   tui.table([["City", "Temp"], ["Nairobi", "26"]], align: ["left", "right"])
+##   # City     Temp
+##   # Nairobi    26
+export fn table(rows, align = [], header = false, gap = "  ") {
+    unless type_of(rows) == "list" and all(rows, fn(r) type_of(r) == "list") {
+        bug("bad_argument", "tui.table: rows must be a list of lists, got {rows}")
+    }
+    if type_of(align) == "map" {
+        bug(
+            "bad_option",
+            "tui.table: options are named arguments - write table(rows, header: true), not table(rows, \{ header: true \})",
+        )
+    }
+    unless type_of(align) == "list" and all(align, fn(a) a in ALIGNS) {
+        bug(
+            "bad_option",
+            "tui.table: align must be a list of \"left\", \"right\" or \"center\", got {align}",
+        )
+    }
+    unless type_of(header) == "bool" {
+        bug("bad_option", "tui.table: header must be a Bool, got {header}")
+    }
+    sep = string(gap)
+    cells_of = map(rows, fn(r) map(r, fn(c) string(c)))
+    ncols = reduce(cells_of, fn(acc, r) max([acc, len(r)]), 0)
 
     # Column widths = widest visible cell per column.
     mut widths = []
     for c in range(0, ncols) {
         mut w = 0
-        for r in rows {
+        for r in cells_of {
             if c < len(r) { w = max([w, vis(r[c])]) }
         }
         widths = push(widths, w)
     }
 
     mut out = []
-    for (i, r) in enumerate(rows) {
+    for (i, r) in enumerate(cells_of) {
         mut cells = []
         for c in range(0, ncols) {
             cell = if c < len(r) { r[c] } else { "" }
             how = if c < len(align) { align[c] } else { "left" }
             cells = push(cells, align_cell(cell, widths[c], how))
         }
-        out = push(out, join(cells, gap))
+        out = push(out, join(cells, sep))
         if header and i == 0 {
-            rule = join(map(widths, fn(w) str.repeat("─", w)), gap)
+            rule = join(map(widths, fn(w) str.repeat("─", w)), sep)
             out = push(out, rule)
         }
     }

@@ -1,0 +1,229 @@
+# Offline tests (ecko test): pure string composition, so output is exact and
+# deterministic. Width-aware helpers count VISIBLE width (escapes take no columns), so a
+# colored string pads/aligns by what the eye sees, not by byte length - proven
+# here with a real ANSI-escaped string built from a bytes literal.
+import std.test
+import std.term
+import "../main.ecko"
+
+# A red "hi": 2 visible columns, 11 raw bytes.
+fn red_hi() = string(b"\x1b[31mhi\x1b[0m")
+
+# --- width-aware primitives ------------------------------------------------
+
+test.case("pad_end pads to a visible width", fn() {
+    test.eq(main.pad_end("hi", 5), "hi   ")
+    test.eq(main.pad_end("hello", 3), "hello")  # already wider -> unchanged
+})
+
+test.case("pad_start pads on the left", fn() {
+    test.eq(main.pad_start("hi", 5), "   hi")
+})
+
+test.case("center distributes the gap, extra on the right", fn() {
+    test.eq(main.center("hi", 6), "  hi  ")
+    test.eq(main.center("hi", 5), " hi  ")
+})
+
+test.case("truncate cuts to a visible width with an ellipsis", fn() {
+    test.eq(main.truncate("hello world", 5), "hell…")
+    test.eq(main.truncate("hi", 5), "hi")  # already shorter -> unchanged
+})
+
+test.case("pad_end counts VISIBLE width of a colored string", fn() {
+    # red_hi is 2 visible columns; padding to 5 adds 3 spaces after it.
+    test.eq(main.pad_end(red_hi(), 5), red_hi() + "   ")
+})
+
+# --- box -------------------------------------------------------------------
+
+test.case("box wraps content in a square border", fn() {
+    got = main.box(["ab", "c"], border: "square", padding: 0)
+    want = "┌──┐\n│ab│\n│c │\n└──┘"
+    test.eq(got, want)
+})
+
+test.case("box grows to fit a title", fn() {
+    got = main.box(["x"], border: "square", padding: 0, title: "Hello")
+    # top border carries the title; content widens to match.
+    test.eq(contains(got, "Hello"), true)
+    test.eq(starts_with(got, "┌"), true)
+})
+
+# --- table -----------------------------------------------------------------
+
+test.case("table aligns columns to their widest cell", fn() {
+    got = main.table([["a", "bb"], ["ccc", "d"]])
+    want = "a    bb\nccc  d "
+    test.eq(got, want)
+})
+
+test.case("table right-aligns a column when asked", fn() {
+    got = main.table([["a", "1"], ["bb", "20"]], align: ["left", "right"])
+    want = "a    1\nbb  20"
+    test.eq(got, want)
+})
+
+# --- styling ---------------------------------------------------------------
+# Whether escapes are written depends on the terminal and on CLICOLOR_FORCE /
+# NO_COLOR, so these hold either way: stripped, a styled string is its text.
+
+ESC = "\u{1b}"
+
+test.case("a colour wraps its text, and strips back to it", fn() {
+    got = main.red("hi")
+    test.eq(main.strip(got), "hi")
+    test.eq(main.width(got), 2)
+    if term.color_enabled() {
+        test.eq(got, ESC + "[31mhi" + ESC + "[0m")
+    } else {
+        test.eq(got, "hi")
+    }
+})
+
+test.case("style combines attributes and colours", fn() {
+    got = main.style("ok", bold: true, fg: "green", bg: "black")
+    test.eq(main.strip(got), "ok")
+    if term.color_enabled() {
+        test.eq(got, ESC + "[1;32;40mok" + ESC + "[0m")
+    } else {
+        test.eq(got, "ok")
+    }
+})
+
+test.case("style refuses an unknown colour", fn() {
+    mut kind = ""
+    try { main.style("x", fg: "mauve") } catch (e) { kind = "{e.kind}/{e.reason}" }
+    test.eq(kind, "bug/bad_option")
+})
+
+test.case("rgb and color clamp to 0-255", fn() {
+    if term.color_enabled() {
+        test.eq(main.rgb("x", 300, -5, 7), ESC + "[38;2;255;0;7mx" + ESC + "[0m")
+        test.eq(main.color("x", 999), ESC + "[38;5;255mx" + ESC + "[0m")
+    } else { test.eq(main.rgb("x", 300, -5, 7), "x") }
+})
+
+test.case("strip removes CSI codes and OSC 8 hyperlinks", fn() {
+    test.eq(main.strip(ESC + "[1mhé" + ESC + "[0m"), "hé")
+    test.eq(
+        main.strip(ESC + "]8;;https://ecko.sh" + ESC + "\\ecko" + ESC + "]8;;" + ESC + "\\"),
+        "ecko",
+    )
+    test.eq(main.strip(ESC + "]8;;u\u{7}x"), "x")
+    test.eq(main.width(red_hi()), 2)
+    test.eq(main.width("🦀"), 2)
+})
+
+test.case("cursor and clear sequences are empty when colour is off", fn() {
+    unless term.color_enabled() {
+        test.eq(main.clear() + main.goto(1, 1) + main.up(2) + main.hide_cursor(), "")
+    }
+})
+
+# --- fixes -------------------------------------------------------------------
+
+fn failure(f) = try {
+    f()
+    "no error"
+} catch (e) { "{get(e, "kind")}/{get(e, "reason")}" }
+
+test.case("width counts terminal columns, not code points", fn() {
+    test.eq(main.width("日本"), 4)
+    test.eq(main.width("🦀"), 2)
+    test.eq(main.width("e\u{301}"), 1)
+    test.eq(main.width("👨\u{200d}👩\u{200d}👧"), 2)
+    test.eq(main.width("\u{1F1FA}\u{1F1F8}"), 2)
+    test.eq(main.width("❤\u{fe0f}"), 2)
+    test.eq(main.width("👍\u{1F3FD}"), 2)
+    test.eq(main.width("ｈｉ"), 4)
+    test.eq(main.width("한국어"), 6)
+    test.eq(main.width(main.red("日本")), 4)
+})
+
+test.case("a box around wide text keeps its right border straight", fn() {
+    got = main.box(["日本語", "abc"], border: "square")
+    test.eq(got, "┌────────┐\n│ 日本語 │\n│ abc    │\n└────────┘")
+})
+
+test.case("table and padding line up wide cells", fn() {
+    test.eq(main.table([["日本", "x"], ["abc", "y"]]), "日本  x\nabc   y")
+    test.eq(main.pad_end("日本", 6), "日本  ")
+    test.eq(main.center("🦀", 4), " 🦀 ")
+})
+
+test.case("truncate never splits a wide character or a cluster", fn() {
+    test.eq(main.truncate("日本語", 5), "日本…")
+    test.eq(main.truncate("日本語", 4), "日…")
+    test.eq(main.truncate("e\u{301}e\u{301}e\u{301}", 2), "e\u{301}…")
+})
+
+test.case("non-string content is stringified, as the styling half does", fn() {
+    test.eq(main.table([["a", 1], [true, 2.5]]), "a     1  \ntrue  2.5")
+    test.eq(main.box([42], border: "square", padding: 0), "┌──┐\n│42│\n└──┘")
+    test.eq(main.pad_end(42, 4), "42  ")
+    test.eq(main.pad_start(42, 4), "  42")
+    test.eq(main.center(7, 3), " 7 ")
+    test.eq(main.truncate(123456, 4), "123…")
+})
+
+test.case("truncate refuses a negative width and handles the small ones", fn() {
+    test.eq(failure(fn() main.truncate("hello", -1)), "bug/bad_width")
+    test.eq(failure(fn() main.pad_end("hello", 1.5)), "bug/bad_width")
+    test.eq(main.truncate("hello", 0), "")
+    test.eq(main.truncate("hello", 1), "h")
+    test.eq(main.truncate("hello", 2), "h…")
+})
+
+test.case("box options are checked", fn() {
+    test.eq(failure(fn() main.box(["abc"], padding: -1)), "bug/bad_option")
+    test.eq(failure(fn() main.box(["abc"], min_width: -3)), "bug/bad_option")
+    test.eq(failure(fn() main.box(["abc"], border: "dotted")), "bug/bad_option")
+    test.eq(failure(fn() main.box("abc")), "bug/bad_argument")
+    test.eq(failure(fn() main.box(["abc"], { border: "square" })), "bug/bad_option")
+})
+
+test.case("table options are checked", fn() {
+    test.eq(failure(fn() main.table([["a"]], align: ["middle"])), "bug/bad_option")
+    test.eq(failure(fn() main.table(["a", "b"])), "bug/bad_argument")
+    test.eq(failure(fn() main.table([["a"]], { header: true })), "bug/bad_option")
+    test.eq(failure(fn() main.table([["a"]], header: "yes")), "bug/bad_option")
+})
+
+test.case("a line holding newlines becomes several rows of the box", fn() {
+    test.eq(main.box(["a\nbc"], border: "square", padding: 0), "┌──┐\n│a │\n│bc│\n└──┘")
+})
+
+test.case("box with no options is rounded with a padding of one", fn() {
+    test.eq(main.box(["x"]), "╭───╮\n│ x │\n╰───╯")
+})
+
+test.case("the title sits in the top edge", fn() {
+    got = main.box(["Ready to ship."], title: "Status")
+    test.eq(got, "╭─ Status ───────╮\n│ Ready to ship. │\n╰────────────────╯")
+    test.eq(
+        main.box(["x"], title: "Hello", border: "square", padding: 0),
+        "┌─ Hello ┐\n│x       │\n└────────┘",
+    )
+})
+
+test.case("double and heavy borders, and min_width", fn() {
+    test.eq(main.box(["x"], border: "double", padding: 0), "╔═╗\n║x║\n╚═╝")
+    test.eq(main.box(["x"], border: "heavy", padding: 0), "┏━┓\n┃x┃\n┗━┛")
+    test.eq(main.box(["x"], border: "square", padding: 0, min_width: 5), "┌───┐\n│x  │\n└───┘")
+})
+
+test.case("table with a header rule, a centred column and a custom gap", fn() {
+    got = main.table(
+        [["name", "n"], ["ab", "1"]],
+        align: ["center", "right"],
+        header: true,
+        gap: " | ",
+    )
+    test.eq(got, "name | n\n──── | ─\n ab  | 1")
+})
+
+test.case("link is its text when colour is off", fn() {
+    unless term.color_enabled() { test.eq(main.link("https://ecko.sh", "docs"), "docs") }
+    test.eq(main.strip(main.link("https://ecko.sh", "docs")), "docs")
+})

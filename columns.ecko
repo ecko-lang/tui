@@ -1,0 +1,213 @@
+# Display width in terminal columns - internal to this package, not API.
+#
+# The same file ships in the `tui` and `textwrap` packages; keep the two copies
+# byte-identical (packages cannot import a sibling).
+#
+# A string is split into clusters - what a terminal draws as one glyph - and
+# each cluster is 0, 1 or 2 columns:
+#
+#   - controls, combining marks (Mn, Me), format characters (Cf) and Hangul
+#     medial/final jamo take no column and join the cluster before them;
+#   - East Asian Wide and Fullwidth characters (Unicode's EastAsianWidth W
+#     and F) take two, which covers CJK, kana, Hangul syllables and the emoji
+#     that default to emoji presentation;
+#   - a text-presentation emoji followed by U+FE0F (VS16) widens to two;
+#   - a ZWJ sequence (U+200D joining emoji), a skin-tone modifier and a pair
+#     of regional indicators (a flag) are one cluster of two columns.
+#
+# This is what wcwidth/wcswidth and modern terminals agree on. Terminals still
+# differ on rarer sequences (keycaps, some ZWJ sequences an older font draws
+# as several glyphs); those are measured as the Unicode tables say.
+
+import std.str
+
+# Hex digits to an Int, for the range table below (Ecko has no hex literals).
+fn hex(h) {
+    mut n = 0
+    for c in str.chars(str.lower(h)) {
+        d = str.index_of("0123456789abcdef", c)
+        n = n * 16 + d
+    }
+    n
+}
+
+# EastAsianWidth W and F ranges (Unicode 15.1), sorted, merged where adjacent.
+WIDE = map(
+    [
+        ["1100", "115F"],
+        ["231A", "231B"],
+        ["2329", "232A"],
+        ["23E9", "23EC"],
+        ["23F0", "23F0"],
+        ["23F3", "23F3"],
+        ["25FD", "25FE"],
+        ["2614", "2615"],
+        ["2648", "2653"],
+        ["267F", "267F"],
+        ["2693", "2693"],
+        ["26A1", "26A1"],
+        ["26AA", "26AB"],
+        ["26BD", "26BE"],
+        ["26C4", "26C5"],
+        ["26CE", "26CE"],
+        ["26D4", "26D4"],
+        ["26EA", "26EA"],
+        ["26F2", "26F3"],
+        ["26F5", "26F5"],
+        ["26FA", "26FA"],
+        ["26FD", "26FD"],
+        ["2705", "2705"],
+        ["270A", "270B"],
+        ["2728", "2728"],
+        ["274C", "274C"],
+        ["274E", "274E"],
+        ["2753", "2755"],
+        ["2757", "2757"],
+        ["2795", "2797"],
+        ["27B0", "27B0"],
+        ["27BF", "27BF"],
+        ["2B1B", "2B1C"],
+        ["2B50", "2B50"],
+        ["2B55", "2B55"],
+        ["2E80", "303E"],
+        ["3041", "33FF"],
+        ["3400", "4DBF"],
+        ["4E00", "9FFF"],
+        ["A000", "A4CF"],
+        ["A960", "A97F"],
+        ["AC00", "D7A3"],
+        ["F900", "FAFF"],
+        ["FE10", "FE19"],
+        ["FE30", "FE6F"],
+        ["FF00", "FF60"],
+        ["FFE0", "FFE6"],
+        ["16FE0", "16FE4"],
+        ["17000", "18CFF"],
+        ["1AFF0", "1B2FF"],
+        ["1F004", "1F004"],
+        ["1F0CF", "1F0CF"],
+        ["1F18E", "1F18E"],
+        ["1F191", "1F19A"],
+        ["1F200", "1F202"],
+        ["1F210", "1F23B"],
+        ["1F240", "1F248"],
+        ["1F250", "1F251"],
+        ["1F260", "1F265"],
+        ["1F300", "1F320"],
+        ["1F32D", "1F335"],
+        ["1F337", "1F37C"],
+        ["1F37E", "1F393"],
+        ["1F3A0", "1F3CA"],
+        ["1F3CF", "1F3D3"],
+        ["1F3E0", "1F3F0"],
+        ["1F3F4", "1F3F4"],
+        ["1F3F8", "1F43E"],
+        ["1F440", "1F440"],
+        ["1F442", "1F4FC"],
+        ["1F4FF", "1F53D"],
+        ["1F54B", "1F54E"],
+        ["1F550", "1F567"],
+        ["1F57A", "1F57A"],
+        ["1F595", "1F596"],
+        ["1F5A4", "1F5A4"],
+        ["1F5FB", "1F64F"],
+        ["1F680", "1F6C5"],
+        ["1F6CC", "1F6CC"],
+        ["1F6D0", "1F6D2"],
+        ["1F6D5", "1F6D7"],
+        ["1F6DC", "1F6DF"],
+        ["1F6EB", "1F6EC"],
+        ["1F6F4", "1F6FC"],
+        ["1F7E0", "1F7EB"],
+        ["1F7F0", "1F7F0"],
+        ["1F90C", "1F93A"],
+        ["1F93C", "1F945"],
+        ["1F947", "1F9FF"],
+        ["1FA70", "1FAFF"],
+        ["20000", "2FFFD"],
+        ["30000", "3FFFD"],
+    ],
+    fn(r) [hex(r[0]), hex(r[1])],
+)
+
+ZWJ = 8205
+VS16 = 65039
+
+fn is_wide(o) {
+    mut lo = 0
+    mut hi = len(WIDE) - 1
+    mut found = false
+    while lo <= hi and not found {
+        mid = (lo + hi) // 2
+        r = WIDE[mid]
+        if o < r[0] { hi = mid - 1 } else if o > r[1] { lo = mid + 1 } else { found = true }
+    }
+    found
+}
+
+fn is_regional(o) = o >= 127462 and o <= 127487
+
+fn is_skin_tone(o) = o >= 127995 and o <= 127999
+
+# Takes no column and joins the cluster before it.
+fn is_mark(c, o) {
+    if o < 768 { false } else if o >= 4448 and o <= 4607 { true } else {
+        cat = str.category(c)
+        cat == "Mn" or cat == "Me" or cat == "Cf"
+    }
+}
+
+# The columns one code point takes at the start of a cluster.
+fn start_width(c, o) {
+    if o < 32 or o >= 127 and o < 160 or is_mark(c, o) { 0 } else if is_wide(o) { 2 } else { 1 }
+}
+
+# `s` as a list of `[text, columns]` clusters, in order.
+export fn clusters(s) {
+    mut out = []
+    mut cur = ""
+    mut w = 0
+    mut base = -1
+    mut joined = false
+    mut flag_open = false
+    for c in str.chars(s) {
+        o = str.ord(c)
+        pair = flag_open and is_regional(o)
+        attach = cur != "" and (joined or pair or w == 2 and is_skin_tone(o) or is_mark(c, o))
+        if attach {
+            cur = cur + c
+            if pair { w = 2 }
+            if o == VS16 and w == 1 and base >= 8252 { w = 2 }
+            joined = o == ZWJ
+            flag_open = false
+        } else {
+            if cur != "" { out = push(out, [cur, w]) }
+            cur = c
+            base = o
+            w = start_width(c, o)
+            joined = o == ZWJ
+            flag_open = is_regional(o)
+        }
+    }
+    if cur != "" { out = push(out, [cur, w]) }
+    out
+}
+
+# The display width of `s` in terminal columns.
+export fn columns(s) = reduce(clusters(s), fn(acc, cl) acc + cl[1], 0)
+
+# The longest prefix of `s` that fits in `n` columns, never splitting a cluster.
+export fn take_columns(s, n) {
+    mut out = ""
+    mut used = 0
+    mut full = false
+    for cl in clusters(s) {
+        if not full {
+            if used + cl[1] <= n {
+                out = out + cl[0]
+                used = used + cl[1]
+            } else { full = true }
+        }
+    }
+    out
+}
